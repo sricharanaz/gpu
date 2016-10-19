@@ -89,8 +89,8 @@ struct drm_msm_gem_new {
 
 struct drm_msm_gem_info {
 	__u32 handle;         /* in */
-	__u32 pad;
-	__u64 offset;         /* out, offset to pass to mmap() */
+	__u32 hint;	      /* in */
+	__u64 offset;         /* out, mmap() offset if hint is 0, iova if 1 */
 };
 
 #define MSM_PREP_READ        0x01
