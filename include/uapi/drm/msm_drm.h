@@ -186,8 +186,10 @@ struct drm_msm_gem_submit_bo {
 };
 
 /* Valid submit ioctl flags: */
-/* to start, nothing.. */
-#define MSM_SUBMIT_FLAGS 0
+#define MSM_SUBMIT_RING_MASK 0x000F0000
+#define MSM_SUBMIT_RING_SHIFT 16
+
+#define MSM_SUBMIT_FLAGS (MSM_SUBMIT_RING_MASK)
 
 /* Each cmdstream submit consists of a table of buffers involved, and
  * one or more cmdstream buffers.  This allows for conditional execution

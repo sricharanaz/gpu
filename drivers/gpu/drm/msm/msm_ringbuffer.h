@@ -22,12 +22,16 @@
 
 struct msm_ringbuffer {
 	struct msm_gpu *gpu;
-	int size;
+	int id;
 	struct drm_gem_object *bo;
 	uint32_t *start, *end, *cur;
+	uint64_t iova;
+	/* last_fence == completed_fence --> no pending work */
+	uint32_t last_fence;
+	uint32_t completed_fence;
 };
 
-struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int size);
+struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int id);
 void msm_ringbuffer_destroy(struct msm_ringbuffer *ring);
 
 /* ringbuffer helpers (the parts that are same for a3xx/a2xx/z180..) */

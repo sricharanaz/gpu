@@ -384,7 +384,7 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 	struct msm_gem_submit *submit;
 	struct msm_gpu *gpu = priv->gpu;
 	unsigned i;
-	int ret;
+	int ret, ring;
 
 	if (!gpu)
 		return -ENXIO;
@@ -486,7 +486,13 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
 
 	submit->nr_cmds = i;
 
-	submit->fence = msm_fence_alloc(gpu->fctx);
+	ring = clamp_t(uint32_t,
+		(args->flags & MSM_SUBMIT_RING_MASK) >> MSM_SUBMIT_RING_SHIFT,
+		0, gpu->nr_rings - 1);
+
+	submit->ring = gpu->rb[ring];
+
+	submit->fence = msm_fence_alloc(gpu->fctx, submit->ring);
 	if (IS_ERR(submit->fence)) {
 		ret = PTR_ERR(submit->fence);
 		submit->fence = NULL;

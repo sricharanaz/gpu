@@ -56,6 +56,6 @@ static inline int spin_usecs(struct msm_gpu *gpu, uint32_t usecs,
 	return -ETIMEDOUT;
 }
 
-bool a5xx_idle(struct msm_gpu *gpu);
+bool a5xx_idle(struct msm_gpu *gpu, struct msm_ringbuffer *ring);
 
 #endif /* __A5XX_GPU_H__ */

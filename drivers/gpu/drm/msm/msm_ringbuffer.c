@@ -18,12 +18,10 @@
 #include "msm_ringbuffer.h"
 #include "msm_gpu.h"
 
-struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int size)
+struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int id)
 {
 	struct msm_ringbuffer *ring;
 	int ret;
-
-	size = ALIGN(size, 4);   /* size should be dword aligned */
 
 	ring = kzalloc(sizeof(*ring), GFP_KERNEL);
 	if (!ring) {
@@ -32,7 +30,8 @@ struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int size)
 	}
 
 	ring->gpu = gpu;
-	ring->bo = msm_gem_new(gpu->dev, size, MSM_BO_WC);
+	ring->id = id;
+	ring->bo = msm_gem_new(gpu->dev, MSM_GPU_RINGBUFFER_SZ, MSM_BO_WC);
 	if (IS_ERR(ring->bo)) {
 		ret = PTR_ERR(ring->bo);
 		ring->bo = NULL;
@@ -44,10 +43,8 @@ struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int size)
 		ret = PTR_ERR(ring->start);
 		goto fail;
 	}
-	ring->end   = ring->start + (size / 4);
+	ring->end   = ring->start + (MSM_GPU_RINGBUFFER_SZ >> 2);
 	ring->cur   = ring->start;
-
-	ring->size = size;
 
 	return ring;
 

@@ -33,7 +33,7 @@ struct msm_gpu_config {
 	const char *irqname;
 	uint64_t va_start;
 	uint64_t va_end;
-	unsigned int ringsz;
+	unsigned int nr_rings;
 };
 
 /* So far, with hardware that I've seen to date, we can have:
@@ -57,9 +57,11 @@ struct msm_gpu_funcs {
 	int (*pm_resume)(struct msm_gpu *gpu);
 	void (*submit)(struct msm_gpu *gpu, struct msm_gem_submit *submit,
 			struct msm_file_private *ctx);
-	void (*flush)(struct msm_gpu *gpu);
+	void (*flush)(struct msm_gpu *gpu, struct msm_ringbuffer *ring);
 	irqreturn_t (*irq)(struct msm_gpu *irq);
-	uint32_t (*last_fence)(struct msm_gpu *gpu);
+	uint32_t (*last_fence)(struct msm_gpu *gpu,
+			struct msm_ringbuffer *ring);
+	struct msm_ringbuffer *(*active_ring)(struct msm_gpu *gpu);
 	void (*recover)(struct msm_gpu *gpu);
 	void (*destroy)(struct msm_gpu *gpu);
 #ifdef CONFIG_DEBUG_FS
@@ -85,9 +87,8 @@ struct msm_gpu {
 	const struct msm_gpu_perfcntr *perfcntrs;
 	uint32_t num_perfcntrs;
 
-	/* ringbuffer: */
-	struct msm_ringbuffer *rb;
-	uint64_t rb_iova;
+	struct msm_ringbuffer *rb[MSM_GPU_MAX_RINGS];
+	int nr_rings;
 
 	/* list of GEM active objects: */
 	struct list_head active_list;
@@ -126,15 +127,36 @@ struct msm_gpu {
 #define DRM_MSM_HANGCHECK_PERIOD 500 /* in ms */
 #define DRM_MSM_HANGCHECK_JIFFIES msecs_to_jiffies(DRM_MSM_HANGCHECK_PERIOD)
 	struct timer_list hangcheck_timer;
-	uint32_t hangcheck_fence;
+	uint32_t hangcheck_fence[MSM_GPU_MAX_RINGS];
 	struct work_struct recover_work;
 
 	struct list_head submit_list;
 };
 
+/* It turns out that all targets use the same ringbuffer size */
+#define MSM_GPU_RINGBUFFER_SZ SZ_32K
+
+static inline struct msm_ringbuffer *__get_ring(struct msm_gpu *gpu, int index)
+{
+	return (index < ARRAY_SIZE(gpu->rb) ? gpu->rb[index] : NULL);
+}
+
+#define FOR_EACH_RING(gpu, ring, index) \
+	for (index = 0, ring = (gpu)->rb[0]; \
+		index < (gpu)->nr_rings && index < ARRAY_SIZE((gpu)->rb); \
+		index++, ring = __get_ring(gpu, index))
+
 static inline bool msm_gpu_active(struct msm_gpu *gpu)
 {
-	return gpu->fctx->last_fence > gpu->funcs->last_fence(gpu);
+	struct msm_ringbuffer *ring;
+	int i;
+
+	FOR_EACH_RING(gpu, ring, i) {
+		if (ring->last_fence > gpu->funcs->last_fence(gpu, ring))
+			return true;
+	}
+
+	return false;
 }
 
 /* Perf-Counters:

@@ -120,6 +120,7 @@ struct msm_gem_submit {
 	struct fence *fence;
 	struct pid *pid;    /* submitting process */
 	bool valid;         /* true if no cmdstream patching needed */
+	struct msm_ringbuffer *ring;
 	unsigned int nr_cmds;
 	unsigned int nr_bos;
 	struct {
