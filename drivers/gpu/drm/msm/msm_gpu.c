@@ -663,7 +663,7 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	iommu = iommu_domain_alloc(&platform_bus_type);
 	if (iommu) {
 		/* TODO 32b vs 64b address space.. */
-		iommu->geometry.aperture_start = 0x1000;
+		iommu->geometry.aperture_start = SZ_16M;
 		iommu->geometry.aperture_end = 0xffffffff;
 
 		dev_info(drm->dev, "%s: using IOMMU\n", name);
