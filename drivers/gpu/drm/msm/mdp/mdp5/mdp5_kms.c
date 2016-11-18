@@ -117,8 +117,7 @@ static int mdp5_set_split_display(struct msm_kms *kms,
 
 static void mdp5_kms_destroy(struct msm_kms *kms)
 {
-	struct mdp5_kms *mdp5_kms = to_mdp5_kms(to_mdp_kms(kms));
-	struct msm_gem_address_space *aspace = mdp5_kms->aspace;
+	struct msm_gem_address_space *aspace = kms->aspace;
 
 	if (aspace) {
 		aspace->mmu->funcs->detach(aspace->mmu,
@@ -615,7 +614,7 @@ struct msm_kms *mdp5_kms_init(struct drm_device *dev)
 			goto fail;
 		}
 
-		mdp5_kms->aspace = aspace;
+		kms->aspace = aspace;
 
 		ret = aspace->mmu->funcs->attach(aspace->mmu, iommu_ports,
 				ARRAY_SIZE(iommu_ports));
@@ -628,13 +627,6 @@ struct msm_kms *mdp5_kms_init(struct drm_device *dev)
 		dev_info(&pdev->dev,
 			 "no iommu, fallback to phys contig buffers for scanout\n");
 		aspace = NULL;;
-	}
-
-	mdp5_kms->id = msm_register_address_space(dev, aspace);
-	if (mdp5_kms->id < 0) {
-		ret = mdp5_kms->id;
-		dev_err(&pdev->dev, "failed to register mdp5 iommu: %d\n", ret);
-		goto fail;
 	}
 
 	ret = modeset_init(mdp5_kms);

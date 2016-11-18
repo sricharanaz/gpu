@@ -301,7 +301,8 @@ void a5xx_gpmu_ucode_init(struct msm_gpu *gpu)
 	if (IS_ERR(a5xx_gpu->gpmu_bo))
 		goto err;
 
-	if (msm_gem_get_iova(a5xx_gpu->gpmu_bo, gpu->id, &a5xx_gpu->gpmu_iova))
+	if (msm_gem_get_iova(a5xx_gpu->gpmu_bo, gpu->aspace,
+		&a5xx_gpu->gpmu_iova))
 		goto err;
 
 	ptr = msm_gem_get_vaddr(a5xx_gpu->gpmu_bo);
@@ -330,7 +331,7 @@ void a5xx_gpmu_ucode_init(struct msm_gpu *gpu)
 
 err:
 	if (a5xx_gpu->gpmu_iova)
-		msm_gem_put_iova(a5xx_gpu->gpmu_bo, gpu->id);
+		msm_gem_put_iova(a5xx_gpu->gpmu_bo, gpu->aspace);
 	if (a5xx_gpu->gpmu_bo)
 		drm_gem_object_unreference_unlocked(a5xx_gpu->gpmu_bo);
 

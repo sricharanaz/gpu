@@ -36,11 +36,6 @@ struct mdp5_kms {
 	struct mdp5_cfg_handler *cfg;
 	uint32_t caps;	/* MDP capabilities (MDP_CAP_XXX bits) */
 
-
-	/* mapper-id used to request GEM buffer mapped for scanout: */
-	int id;
-	struct msm_gem_address_space *aspace;
-
 	struct mdp5_smp *smp;
 	struct mdp5_ctl_manager *ctlm;
 

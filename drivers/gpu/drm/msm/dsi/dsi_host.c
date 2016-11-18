@@ -28,6 +28,7 @@
 #include <linux/regmap.h>
 #include <video/mipi_display.h>
 
+#include "msm_kms.h"
 #include "dsi.h"
 #include "dsi.xml.h"
 #include "sfpb.xml.h"
@@ -979,6 +980,7 @@ static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
 static int dsi_tx_buf_alloc(struct msm_dsi_host *msm_host, int size)
 {
 	struct drm_device *dev = msm_host->dev;
+	struct msm_drm_private *priv = dev->dev_private;
 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
 	int ret;
 	uint64_t iova;
@@ -995,7 +997,13 @@ static int dsi_tx_buf_alloc(struct msm_dsi_host *msm_host, int size)
 			return ret;
 		}
 
-		ret = msm_gem_get_iova_locked(msm_host->tx_gem_obj, 0, &iova);
+		if (!priv->kms) {
+			pr_err("%s: No KMS is initalized\n", __func__);
+			return -ENODEV;
+		}
+
+		ret = msm_gem_get_iova_locked(msm_host->tx_gem_obj,
+			priv->kms->aspace, &iova);
 		mutex_unlock(&dev->struct_mutex);
 		if (ret) {
 			pr_err("%s: failed to get iova, %d\n", __func__, ret);
@@ -1027,9 +1035,12 @@ static int dsi_tx_buf_alloc(struct msm_dsi_host *msm_host, int size)
 static void dsi_tx_buf_free(struct msm_dsi_host *msm_host)
 {
 	struct drm_device *dev = msm_host->dev;
+	struct msm_drm_private *priv = dev->dev_private;
 
 	if (msm_host->tx_gem_obj) {
-		msm_gem_put_iova(msm_host->tx_gem_obj, 0);
+		if (priv->kms)
+			msm_gem_put_iova(msm_host->tx_gem_obj,
+				priv->kms->aspace);
 		mutex_lock(&dev->struct_mutex);
 		msm_gem_free_object(msm_host->tx_gem_obj);
 		msm_host->tx_gem_obj = NULL;

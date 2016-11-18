@@ -454,7 +454,7 @@ static void retire_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit)
 		struct msm_gem_object *msm_obj = submit->bos[i].obj;
 		/* move to inactive: */
 		msm_gem_move_to_inactive(&msm_obj->base);
-		msm_gem_put_iova(&msm_obj->base, gpu->id);
+		msm_gem_put_iova(&msm_obj->base, gpu->aspace);
 		drm_gem_object_unreference(&msm_obj->base);
 	}
 
@@ -535,7 +535,7 @@ void msm_gpu_submit(struct msm_gpu *gpu, struct msm_gem_submit *submit,
 		/* submit takes a reference to the bo and iova until retired: */
 		drm_gem_object_reference(&msm_obj->base);
 		msm_gem_get_iova_locked(&msm_obj->base,
-				submit->gpu->id, &iova);
+				submit->gpu->aspace, &iova);
 
 		if (submit->bos[i].flags & MSM_SUBMIT_BO_WRITE)
 			msm_gem_move_to_active(&msm_obj->base, gpu, true, submit->fence);
@@ -671,8 +671,6 @@ int msm_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	} else {
 		dev_info(drm->dev, "%s: no IOMMU, fallback to VRAM carveout!\n", name);
 	}
-	gpu->id = msm_register_address_space(drm, gpu->aspace);
-
 
 	/* Create ringbuffer: */
 	mutex_lock(&drm->struct_mutex);
@@ -703,7 +701,7 @@ void msm_gpu_cleanup(struct msm_gpu *gpu)
 
 	if (gpu->rb) {
 		if (gpu->rb_iova)
-			msm_gem_put_iova(gpu->rb->bo, gpu->id);
+			msm_gem_put_iova(gpu->rb->bo, gpu->aspace);
 		msm_ringbuffer_destroy(gpu->rb);
 	}
 
