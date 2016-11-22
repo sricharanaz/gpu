@@ -29,6 +29,7 @@ struct msm_ringbuffer {
 	/* last_fence == completed_fence --> no pending work */
 	uint32_t last_fence;
 	uint32_t completed_fence;
+	spinlock_t lock;
 };
 
 struct msm_ringbuffer *msm_ringbuffer_new(struct msm_gpu *gpu, int id);

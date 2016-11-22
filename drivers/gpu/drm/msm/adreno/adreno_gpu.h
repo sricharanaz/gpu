@@ -330,6 +330,11 @@ static inline void adreno_gpu_write64(struct adreno_gpu *gpu,
 	adreno_gpu_write(gpu, hi, upper_32_bits(data));
 }
 
+static inline uint32_t get_wptr(struct msm_ringbuffer *ring)
+{
+	return ring->cur - ring->start;
+}
+
 /*
  * Given a register and a count, return a value to program into
  * REG_CP_PROTECT_REG(n) - this will block both reads and writes for _len
