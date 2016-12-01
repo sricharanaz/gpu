@@ -256,9 +256,6 @@
 #define RESUME_RETRY			(0 << 0)
 #define RESUME_TERMINATE		(1 << 0)
 
-#define TTBCR2_SEP_SHIFT		15
-#define TTBCR2_SEP_UPSTREAM		(0x7 << TTBCR2_SEP_SHIFT)
-
 #define TTBRn_ASID_SHIFT		48
 
 #define FSR_MULTI			(1 << 31)
@@ -797,7 +794,6 @@ static void arm_smmu_init_context_bank(struct arm_smmu_domain *smmu_domain,
 		writel_relaxed(reg, cb_base + ARM_SMMU_CB_TTBCR);
 		if (smmu->version > ARM_SMMU_V1) {
 			reg = pgtbl_cfg->arm_lpae_s1_cfg.tcr >> 32;
-			reg |= TTBCR2_SEP_UPSTREAM;
 			writel_relaxed(reg, cb_base + ARM_SMMU_CB_TTBCR2);
 		}
 	} else {
@@ -875,6 +871,9 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 	struct arm_smmu_domain *smmu_domain = to_smmu_domain(domain);
 	struct arm_smmu_cfg *cfg = &smmu_domain->cfg;
 	bool dynamic;
+	unsigned int quirks =
+		smmu_domain->attributes & (1 << DOMAIN_ATTR_ENABLE_TTBR1) ?
+			IO_PGTABLE_QUIRK_ARM_TTBR1 : 0;
 
 	mutex_lock(&smmu_domain->init_mutex);
 	if (smmu_domain->smmu)
@@ -993,6 +992,7 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 	}
 
 	smmu_domain->pgtbl_cfg = (struct io_pgtable_cfg) {
+		.quirks		= quirks,
 		.pgsize_bitmap	= smmu->pgsize_bitmap,
 		.ias		= ias,
 		.oas		= oas,
@@ -1649,6 +1649,10 @@ static int arm_smmu_domain_get_attr(struct iommu_domain *domain,
 		*((int *)data) = !!(smmu_domain->attributes
 					& (1 << DOMAIN_ATTR_DYNAMIC));
 		return 0;
+	case DOMAIN_ATTR_ENABLE_TTBR1:
+		*((int *)data) = !!(smmu_domain->attributes
+					& (1 << DOMAIN_ATTR_ENABLE_TTBR1));
+		return 0;
 	default:
 		return -ENODEV;
 	}
@@ -1713,6 +1717,12 @@ static int arm_smmu_domain_set_attr(struct iommu_domain *domain,
 
 		/* this will be validated during attach */
 		smmu_domain->cfg.cbndx = *((unsigned int *)data);
+		ret = 0;
+		break;
+	case DOMAIN_ATTR_ENABLE_TTBR1:
+		if (*((int *)data))
+			smmu_domain->attributes |=
+				1 << DOMAIN_ATTR_ENABLE_TTBR1;
 		ret = 0;
 		break;
 	default:
@@ -2392,7 +2402,6 @@ out_disable_clocks:
 out_disable_regulators:
        arm_smmu_disable_regulators(smmu);
 
-out:
 	return err;
 }
 

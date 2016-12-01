@@ -124,14 +124,21 @@
 #define ARM_LPAE_TCR_TG0_64K		(1 << 14)
 #define ARM_LPAE_TCR_TG0_16K		(2 << 14)
 
+#define ARM_LPAE_TCR_TG1_16K            1ULL
+#define ARM_LPAE_TCR_TG1_4K             2ULL
+#define ARM_LPAE_TCR_TG1_64K            3ULL
+
 #define ARM_LPAE_TCR_SH0_SHIFT		12
 #define ARM_LPAE_TCR_SH0_MASK		0x3
+#define ARM_LPAE_TCR_SH1_SHIFT		28
 #define ARM_LPAE_TCR_SH_NS		0
 #define ARM_LPAE_TCR_SH_OS		2
 #define ARM_LPAE_TCR_SH_IS		3
 
 #define ARM_LPAE_TCR_ORGN0_SHIFT	10
+#define ARM_LPAE_TCR_ORGN1_SHIFT	26
 #define ARM_LPAE_TCR_IRGN0_SHIFT	8
+#define ARM_LPAE_TCR_IRGN1_SHIFT	24
 #define ARM_LPAE_TCR_RGN_MASK		0x3
 #define ARM_LPAE_TCR_RGN_NC		0
 #define ARM_LPAE_TCR_RGN_WBWA		1
@@ -143,6 +150,9 @@
 
 #define ARM_LPAE_TCR_T0SZ_SHIFT		0
 #define ARM_LPAE_TCR_SZ_MASK		0xf
+
+#define ARM_LPAE_TCR_T1SZ_SHIFT         16
+#define ARM_LPAE_TCR_T1SZ_MASK          0x3f
 
 #define ARM_LPAE_TCR_PS_SHIFT		16
 #define ARM_LPAE_TCR_PS_MASK		0x7
@@ -156,6 +166,16 @@
 #define ARM_LPAE_TCR_PS_42_BIT		0x3ULL
 #define ARM_LPAE_TCR_PS_44_BIT		0x4ULL
 #define ARM_LPAE_TCR_PS_48_BIT		0x5ULL
+
+#define ARM_LPAE_TCR_SEP_SHIFT		(15 + 32)
+
+#define ARM_LPAE_TCR_SEP_31		0x0ULL
+#define ARM_LPAE_TCR_SEP_35		0x1ULL
+#define ARM_LPAE_TCR_SEP_39		0x2ULL
+#define ARM_LPAE_TCR_SEP_41		0x3ULL
+#define ARM_LPAE_TCR_SEP_43		0x4ULL
+#define ARM_LPAE_TCR_SEP_47		0x5ULL
+#define ARM_LPAE_TCR_SEP_UPSTREAM	0x7ULL
 
 #define ARM_LPAE_MAIR_ATTR_SHIFT(n)	((n) << 3)
 #define ARM_LPAE_MAIR_ATTR_MASK		0xff
@@ -195,7 +215,7 @@ struct arm_lpae_io_pgtable {
 	unsigned long		pg_shift;
 	unsigned long		bits_per_level;
 
-	void			*pgd;
+	void			*pgd[2];
 };
 
 typedef u64 arm_lpae_iopte;
@@ -381,13 +401,37 @@ static arm_lpae_iopte arm_lpae_prot_to_pte(struct arm_lpae_io_pgtable *data,
 	return pte;
 }
 
+static inline arm_lpae_iopte *arm_lpae_get_table(
+		struct arm_lpae_io_pgtable *data, unsigned long iova)
+{
+	struct io_pgtable_cfg *cfg = &data->iop.cfg;
+
+	if (cfg->quirks & IO_PGTABLE_QUIRK_ARM_TTBR1)  {
+		unsigned long mask;
+
+		/*
+		 * IAS of 48 means sign extension bit 48, otherwise it is the
+		 * ias - 1 (32 -> bit 31, etc)
+		 */
+		mask = (cfg->ias == 48) ? (1UL << 48) :
+			(1UL << (cfg->ias - 1));
+
+		if (iova & mask)
+			return data->pgd[1];
+	}
+
+	return data->pgd[0];
+}
+
 static int arm_lpae_map(struct io_pgtable_ops *ops, unsigned long iova,
 			phys_addr_t paddr, size_t size, int iommu_prot)
 {
 	struct arm_lpae_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	arm_lpae_iopte *ptep = data->pgd;
+	arm_lpae_iopte *ptep;
 	int ret, lvl = ARM_LPAE_START_LVL(data);
 	arm_lpae_iopte prot;
+
+	ptep = arm_lpae_get_table(data, iova);
 
 	/* If no access, then nothing to do */
 	if (!(iommu_prot & (IOMMU_READ | IOMMU_WRITE)))
@@ -439,7 +483,10 @@ static void arm_lpae_free_pgtable(struct io_pgtable *iop)
 {
 	struct arm_lpae_io_pgtable *data = io_pgtable_to_data(iop);
 
-	__arm_lpae_free_pgtable(data, ARM_LPAE_START_LVL(data), data->pgd);
+	__arm_lpae_free_pgtable(data, ARM_LPAE_START_LVL(data), data->pgd[0]);
+	if (data->pgd[1])
+		__arm_lpae_free_pgtable(data, ARM_LPAE_START_LVL(data),
+			data->pgd[1]);
 	kfree(data);
 }
 
@@ -535,8 +582,10 @@ static int arm_lpae_unmap(struct io_pgtable_ops *ops, unsigned long iova,
 {
 	size_t unmapped;
 	struct arm_lpae_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	arm_lpae_iopte *ptep = data->pgd;
+	arm_lpae_iopte *ptep;
 	int lvl = ARM_LPAE_START_LVL(data);
+
+	ptep = arm_lpae_get_table(data, iova);
 
 	unmapped = __arm_lpae_unmap(data, iova, size, lvl, ptep);
 	if (unmapped)
@@ -549,8 +598,10 @@ static phys_addr_t arm_lpae_iova_to_phys(struct io_pgtable_ops *ops,
 					 unsigned long iova)
 {
 	struct arm_lpae_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	arm_lpae_iopte pte, *ptep = data->pgd;
+	arm_lpae_iopte pte, *ptep;
 	int lvl = ARM_LPAE_START_LVL(data);
+
+	ptep = arm_lpae_get_table(data, iova);
 
 	do {
 		/* Valid IOPTE pointer? */
@@ -660,13 +711,81 @@ arm_lpae_alloc_pgtable(struct io_pgtable_cfg *cfg)
 	return data;
 }
 
+static u64 arm64_lpae_setup_ttbr1(struct io_pgtable_cfg *cfg,
+		struct arm_lpae_io_pgtable *data)
+
+{
+	u64 reg;
+
+	/* If TTBR1 is disabled, disable speculative walks through the TTBR1 */
+	if (!(cfg->quirks & IO_PGTABLE_QUIRK_ARM_TTBR1)) {
+		reg = ARM_LPAE_TCR_EPD1;
+		reg |= (ARM_LPAE_TCR_SEP_UPSTREAM << ARM_LPAE_TCR_SEP_SHIFT);
+		return reg;
+	}
+
+	reg = (ARM_LPAE_TCR_SH_IS << ARM_LPAE_TCR_SH1_SHIFT) |
+	      (ARM_LPAE_TCR_RGN_WBWA << ARM_LPAE_TCR_IRGN1_SHIFT) |
+	      (ARM_LPAE_TCR_RGN_WBWA << ARM_LPAE_TCR_ORGN1_SHIFT);
+
+	switch (1 << data->pg_shift) {
+	case SZ_4K:
+		reg |= (ARM_LPAE_TCR_TG1_4K << 30);
+		break;
+	case SZ_16K:
+		reg |= (ARM_LPAE_TCR_TG1_16K << 30);
+		break;
+	case SZ_64K:
+		reg |= (ARM_LPAE_TCR_TG1_64K << 30);
+		break;
+	}
+
+	/* Set T1SZ */
+	reg |= (64ULL - cfg->ias) << ARM_LPAE_TCR_T1SZ_SHIFT;
+
+	/* Set the SEP bit based on the size */
+	switch (cfg->ias) {
+	case 32:
+		reg |= (ARM_LPAE_TCR_SEP_31 << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	case 36:
+		reg |= (ARM_LPAE_TCR_SEP_35 << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	case 40:
+		reg |= (ARM_LPAE_TCR_SEP_39 << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	case 42:
+		reg |= (ARM_LPAE_TCR_SEP_41 << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	case 44:
+		reg |= (ARM_LPAE_TCR_SEP_43 << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	case 48:
+		/*
+		 * If ias is 48 then that probably means that the UBS on the
+		 * device was 0101b (49) which is a special case that assumes
+		 * bit 48 is the sign extension bit. In this case we are
+		 * expected to use ARM_LPAE_TCR_SEP_UPSTREAM to use bit 48 as
+		 * the extension bit. One might be confused because there is
+		 * also an option to set the SEP to bit 47 but this is probably
+		 * not what the arm-smmu driver intended.
+		 */
+	default:
+		reg |= (ARM_LPAE_TCR_SEP_UPSTREAM << ARM_LPAE_TCR_SEP_SHIFT);
+		break;
+	}
+
+	return reg;
+}
+
 static struct io_pgtable *
 arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
 {
 	u64 reg;
 	struct arm_lpae_io_pgtable *data;
 
-	if (cfg->quirks & ~IO_PGTABLE_QUIRK_ARM_NS)
+	if (cfg->quirks & ~(IO_PGTABLE_QUIRK_ARM_NS |
+		  IO_PGTABLE_QUIRK_ARM_TTBR1))
 		return NULL;
 
 	data = arm_lpae_alloc_pgtable(cfg);
@@ -715,8 +834,9 @@ arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
 
 	reg |= (64ULL - cfg->ias) << ARM_LPAE_TCR_T0SZ_SHIFT;
 
-	/* Disable speculative walks through TTBR1 */
-	reg |= ARM_LPAE_TCR_EPD1;
+	/* Bring in the TTBR1 configuration */
+	reg |= arm64_lpae_setup_ttbr1(cfg, data);
+
 	cfg->arm_lpae_s1_cfg.tcr = reg;
 
 	/* MAIRs */
@@ -731,16 +851,31 @@ arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
 	cfg->arm_lpae_s1_cfg.mair[1] = 0;
 
 	/* Looking good; allocate a pgd */
-	data->pgd = __arm_lpae_alloc_pages(data->pgd_size, GFP_KERNEL, cfg);
-	if (!data->pgd)
+	data->pgd[0] = __arm_lpae_alloc_pages(data->pgd_size, GFP_KERNEL, cfg);
+	if (!data->pgd[0])
 		goto out_free_data;
+
+
+	if (cfg->quirks & IO_PGTABLE_QUIRK_ARM_TTBR1) {
+		data->pgd[1] = __arm_lpae_alloc_pages(data->pgd_size,
+			GFP_KERNEL, cfg);
+		if (!data->pgd[1]) {
+			__arm_lpae_free_pages(data->pgd[0], data->pgd_size, cfg);
+			goto out_free_data;
+		}
+	} else {
+		data->pgd[1] = NULL;
+	}
 
 	/* Ensure the empty pgd is visible before any actual TTBR write */
 	wmb();
 
 	/* TTBRs */
-	cfg->arm_lpae_s1_cfg.ttbr[0] = virt_to_phys(data->pgd);
-	cfg->arm_lpae_s1_cfg.ttbr[1] = 0;
+	cfg->arm_lpae_s1_cfg.ttbr[0] = virt_to_phys(data->pgd[0]);
+
+	if (data->pgd[1])
+		cfg->arm_lpae_s1_cfg.ttbr[1] = virt_to_phys(data->pgd[1]);
+
 	return &data->iop;
 
 out_free_data:
@@ -825,15 +960,15 @@ arm_64_lpae_alloc_pgtable_s2(struct io_pgtable_cfg *cfg, void *cookie)
 	cfg->arm_lpae_s2_cfg.vtcr = reg;
 
 	/* Allocate pgd pages */
-	data->pgd = __arm_lpae_alloc_pages(data->pgd_size, GFP_KERNEL, cfg);
-	if (!data->pgd)
+	data->pgd[0] = __arm_lpae_alloc_pages(data->pgd_size, GFP_KERNEL, cfg);
+	if (!data->pgd[0])
 		goto out_free_data;
 
 	/* Ensure the empty pgd is visible before any actual TTBR write */
 	wmb();
 
 	/* VTTBR */
-	cfg->arm_lpae_s2_cfg.vttbr = virt_to_phys(data->pgd);
+	cfg->arm_lpae_s2_cfg.vttbr = virt_to_phys(data->pgd[0]);
 	return &data->iop;
 
 out_free_data:
@@ -931,7 +1066,7 @@ static void __init arm_lpae_dump_ops(struct io_pgtable_ops *ops)
 		cfg->pgsize_bitmap, cfg->ias);
 	pr_err("data: %d levels, 0x%zx pgd_size, %lu pg_shift, %lu bits_per_level, pgd @ %p\n",
 		data->levels, data->pgd_size, data->pg_shift,
-		data->bits_per_level, data->pgd);
+		data->bits_per_level, data->pgd[0]);
 }
 
 #define __FAIL(ops, i)	({						\
