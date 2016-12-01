@@ -505,5 +505,6 @@ void adreno_gpu_cleanup(struct adreno_gpu *gpu)
 	}
 	release_firmware(gpu->pm4);
 	release_firmware(gpu->pfp);
+
 	msm_gpu_cleanup(&gpu->base);
 }

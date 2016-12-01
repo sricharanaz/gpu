@@ -166,8 +166,7 @@ static void mdp4_destroy(struct msm_kms *kms)
 		msm_gem_put_iova(mdp4_kms->blank_cursor_bo, aspace);
 
 	if (aspace) {
-		aspace->mmu->funcs->detach(aspace->mmu,
-				iommu_ports, ARRAY_SIZE(iommu_ports));
+		aspace->mmu->funcs->detach(aspace->mmu);
 		msm_gem_address_space_destroy(aspace);
 	}
 
