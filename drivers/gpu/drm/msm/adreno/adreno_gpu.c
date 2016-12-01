@@ -419,8 +419,22 @@ int adreno_gpu_init(struct drm_device *drm, struct platform_device *pdev,
 	adreno_gpu_config.ioname = "kgsl_3d0_reg_memory";
 	adreno_gpu_config.irqname = "kgsl_3d0_irq";
 
-	adreno_gpu_config.va_start = SZ_16M;
-	adreno_gpu_config.va_end = 0xffffffff;
+	if (adreno_gpu->revn >= 500) {
+		/*
+		 * By default map all A5XX buffers into the TTBR1 va space.
+		 * If per-instance pagetables are used then they will
+		 * use their own address space and the default domain will only
+		 * be used for kernel buffers. If per-instance pagetables aren't
+		 * enabled then we'll end up using the TTBR1 range as the
+		 * default global pagetable but that's okay because we have
+		 * plenty of room.
+		 */
+		adreno_gpu_config.va_start = 0xfffffff800000000ULL;
+		adreno_gpu_config.va_end =   0xfffffff8ffffffffULL;
+	} else {
+		adreno_gpu_config.va_start = SZ_16M;
+		adreno_gpu_config.va_end = 0xffffffff;
+	}
 
 	adreno_gpu_config.nr_rings = nr_rings;
 

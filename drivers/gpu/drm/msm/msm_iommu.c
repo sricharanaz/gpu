@@ -35,6 +35,14 @@ static int msm_iommu_attach(struct msm_mmu *mmu, const char * const *names,
 			    int cnt)
 {
 	struct msm_iommu *iommu = to_msm_iommu(mmu);
+	int val = 1;
+
+	/* Use TTBR1 if it exists */
+	/* FIXME: This should only be for GPU and in theory only for A5XX */
+
+	iommu_domain_set_attr(iommu->domain, DOMAIN_ATTR_ENABLE_TTBR1,
+		&val);
+
 	return iommu_attach_device(iommu->domain, mmu->dev);
 }
 
