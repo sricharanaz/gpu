@@ -1503,6 +1503,12 @@ static int arm_smmu_domain_get_attr(struct iommu_domain *domain,
 	case DOMAIN_ATTR_NESTING:
 		*(int *)data = (smmu_domain->stage == ARM_SMMU_DOMAIN_NESTED);
 		return 0;
+	case DOMAIN_ATTR_CONTEXT_BANK:
+		/* context bank isn't valid until we are attached */
+		if (!smmu_domain->smmu)
+			return -ENODEV;
+		*((unsigned int *) data) = smmu_domain->cfg.cbndx;
+		return 0;
 	default:
 		return -ENODEV;
 	}
