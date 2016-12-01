@@ -20,6 +20,8 @@
 #include "msm_fence.h"
 #include "msm_gpu.h"
 #include "msm_kms.h"
+#include "msm_gem.h"
+#include "msm_mmu.h"
 
 
 /*
@@ -486,11 +488,37 @@ static int msm_open(struct drm_device *dev, struct drm_file *file)
 	 */
 	load_gpu(dev);
 
+	if (!priv->gpu)
+		return 0;
+
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
 
-	ctx->aspace = priv->gpu->aspace;
+	/*
+	 * FIXME: we will want to use a dynamic name of some sort
+	 * FIXME: WE will need a smarter way to set the range based on target
+	 */
+	ctx->aspace = msm_gem_address_space_create_instance(
+		priv->gpu->aspace->mmu, "gpu", 0x100000000, 0x1ffffffff);
+
+	if (IS_ERR(ctx->aspace)) {
+		int ret = PTR_ERR(ctx->aspace);
+
+		/*
+		 * If dynamic domains are not supported, everybody uses the same
+		 * pagetable
+		 */
+		if (ret == -EOPNOTSUPP)
+			ctx->aspace = priv->gpu->aspace;
+		else {
+			kfree(ctx);
+			return ret;
+		}
+	} else {
+		ctx->aspace->mmu->funcs->attach(ctx->aspace->mmu, NULL, 0);
+	}
+
 	file->driver_priv = ctx;
 
 	return 0;
@@ -505,9 +533,24 @@ static void msm_preclose(struct drm_device *dev, struct drm_file *file)
 	if (ctx == priv->lastctx)
 		priv->lastctx = NULL;
 	mutex_unlock(&dev->struct_mutex);
+}
+
+static void msm_postclose(struct drm_device *dev, struct drm_file *file)
+{
+	struct msm_drm_private *priv = dev->dev_private;
+	struct msm_file_private *ctx = file->driver_priv;
+
+
+	mutex_lock(&dev->struct_mutex);
+	if (ctx && ctx->aspace && ctx->aspace != priv->gpu->aspace) {
+		ctx->aspace->mmu->funcs->detach(ctx->aspace->mmu);
+		msm_gem_address_space_destroy(ctx->aspace);
+	}
+	mutex_unlock(&dev->struct_mutex);
 
 	kfree(ctx);
 }
+
 
 static void msm_lastclose(struct drm_device *dev)
 {
@@ -793,6 +836,7 @@ static struct drm_driver msm_driver = {
 				DRIVER_MODESET,
 	.open               = msm_open,
 	.preclose           = msm_preclose,
+	.postclose	    = msm_postclose,
 	.lastclose          = msm_lastclose,
 	.irq_handler        = msm_irq,
 	.irq_preinstall     = msm_irq_preinstall,

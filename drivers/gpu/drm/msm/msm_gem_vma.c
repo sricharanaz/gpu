@@ -70,9 +70,9 @@ msm_gem_address_space_destroy(struct msm_gem_address_space *aspace)
 	kfree(aspace);
 }
 
-struct msm_gem_address_space *
-msm_gem_address_space_create(struct device *dev, struct iommu_domain *domain,
-		const char *name)
+static struct msm_gem_address_space *
+msm_gem_address_space_new(struct msm_mmu *mmu, const char *name,
+		uint64_t start, uint64_t end)
 {
 	struct msm_gem_address_space *aspace;
 
@@ -81,10 +81,36 @@ msm_gem_address_space_create(struct device *dev, struct iommu_domain *domain,
 		return ERR_PTR(-ENOMEM);
 
 	aspace->name = name;
-	aspace->mmu = msm_iommu_new(dev, domain);
+	aspace->mmu = mmu;
 
-	drm_mm_init(&aspace->mm, (domain->geometry.aperture_start >> PAGE_SHIFT),
-			(domain->geometry.aperture_end >> PAGE_SHIFT) - 1);
+	drm_mm_init(&aspace->mm, (start >> PAGE_SHIFT),
+		(end >> PAGE_SHIFT) - 1);
 
 	return aspace;
+}
+
+struct msm_gem_address_space *
+msm_gem_address_space_create(struct device *dev, struct iommu_domain *domain,
+		const char *name)
+{
+	struct msm_mmu *mmu = msm_iommu_new(dev, domain);
+
+	if (IS_ERR(mmu))
+		return (struct msm_gem_address_space *) mmu;
+
+	return msm_gem_address_space_new(mmu, name,
+		domain->geometry.aperture_start,
+		domain->geometry.aperture_end);
+}
+
+struct msm_gem_address_space *
+msm_gem_address_space_create_instance(struct msm_mmu *parent, const char *name,
+		uint64_t start, uint64_t end)
+{
+	struct msm_mmu *child = msm_iommu_new_dynamic(parent);
+
+	if (IS_ERR(child))
+		return (struct msm_gem_address_space *) child;
+
+	return msm_gem_address_space_new(child, name, start, end);
 }

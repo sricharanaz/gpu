@@ -512,6 +512,7 @@
 
 			qcom,skip-init;
 			qcom,register-save;
+			qcom,dynamic;
 
 			status = "okay";
 		};
