@@ -478,6 +478,7 @@ static void load_gpu(struct drm_device *dev)
 
 static int msm_open(struct drm_device *dev, struct drm_file *file)
 {
+	struct msm_drm_private *priv = dev->dev_private;
 	struct msm_file_private *ctx;
 
 	/* For now, load gpu on open.. to avoid the requirement of having
@@ -489,6 +490,7 @@ static int msm_open(struct drm_device *dev, struct drm_file *file)
 	if (!ctx)
 		return -ENOMEM;
 
+	ctx->aspace = priv->gpu->aspace;
 	file->driver_priv = ctx;
 
 	return 0;

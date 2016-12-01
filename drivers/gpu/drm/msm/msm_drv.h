@@ -58,11 +58,7 @@ struct msm_gem_vma;
 #define NUM_DOMAINS 2    /* one for KMS, then one per gpu core (?) */
 
 struct msm_file_private {
-	/* currently we don't do anything useful with this.. but when
-	 * per-context address spaces are supported we'd keep track of
-	 * the context's page-tables here.
-	 */
-	int dummy;
+	struct msm_gem_address_space *aspace;
 };
 
 enum msm_mdp_plane_property {
