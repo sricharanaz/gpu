@@ -17,6 +17,7 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <linux/pm_opp.h>
 #include "adreno_gpu.h"
 
 #define ANY_ID 0xff
@@ -193,14 +194,75 @@ static const struct {
 	{ "qcom,gpu-quirk-fault-detect-mask", ADRENO_QUIRK_FAULT_DETECT_MASK },
 };
 
+/* Get legacy powerlevels from qcom,gpu-pwrlevels and populate the opp table */
+static int adreno_get_legacy_pwrlevels(struct device *dev)
+{
+	struct device_node *child, *node;
+	int ret;
+
+	node = of_find_compatible_node(dev->of_node, NULL,
+		"qcom,gpu-pwrlevels");
+	if (!node) {
+		dev_err(dev, "Could not find the GPU powerlevels\n");
+		return -ENXIO;
+	}
+
+	for_each_child_of_node(node, child) {
+		unsigned int val;
+
+		ret = of_property_read_u32(child, "qcom,gpu-freq", &val);
+		if (ret)
+			continue;
+
+		dev_pm_opp_add(dev, val, 0);
+	}
+
+	return 0;
+}
+
+static int adreno_get_pwrlevels(struct device *dev,
+		struct adreno_platform_config *config)
+{
+	unsigned long freq;
+	struct dev_pm_opp *opp;
+	int ret;
+
+	/* You down with OPP? */
+	if (!of_find_property(dev->of_node, "operating-points-v2", NULL))
+		ret = adreno_get_legacy_pwrlevels(dev);
+	else
+		ret = dev_pm_opp_of_add_table(dev);
+
+	if (ret)
+		return ret;
+
+	/* Find the fastest defined rate */
+	freq = ULONG_MAX;
+	opp = dev_pm_opp_find_freq_floor(dev, &freq);
+	if (!IS_ERR(opp))
+		config->fast_rate = dev_pm_opp_get_freq(opp);
+
+	/* And the slowest */
+	freq = 0;
+	opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+	if (!IS_ERR(opp))
+		config->slow_rate = dev_pm_opp_get_freq(opp);
+
+	if (!config->fast_rate) {
+		dev_err(dev, "could not find clk rates\n");
+		return -ENXIO;
+	}
+
+	return 0;
+}
+
 static int adreno_bind(struct device *dev, struct device *master, void *data)
 {
 	static struct adreno_platform_config config = {};
-	struct device_node *child, *node = dev->of_node;
 	u32 val;
 	int ret, i;
 
-	ret = of_property_read_u32(node, "qcom,chipid", &val);
+	ret = of_property_read_u32(dev->of_node, "qcom,chipid", &val);
 	if (ret) {
 		dev_err(dev, "could not find chipid: %d\n", ret);
 		return ret;
@@ -212,28 +274,13 @@ static int adreno_bind(struct device *dev, struct device *master, void *data)
 	/* find clock rates: */
 	config.fast_rate = 0;
 	config.slow_rate = ~0;
-	for_each_child_of_node(node, child) {
-		if (of_device_is_compatible(child, "qcom,gpu-pwrlevels")) {
-			struct device_node *pwrlvl;
-			for_each_child_of_node(child, pwrlvl) {
-				ret = of_property_read_u32(pwrlvl, "qcom,gpu-freq", &val);
-				if (ret) {
-					dev_err(dev, "could not find gpu-freq: %d\n", ret);
-					return ret;
-				}
-				config.fast_rate = max(config.fast_rate, val);
-				config.slow_rate = min(config.slow_rate, val);
-			}
-		}
-	}
 
-	if (!config.fast_rate) {
-		dev_err(dev, "could not find clk rates\n");
-		return -ENXIO;
-	}
+	ret = adreno_get_pwrlevels(dev, &config);
+	if (ret)
+		return ret;
 
 	for (i = 0; i < ARRAY_SIZE(quirks); i++)
-		if (of_property_read_bool(node, quirks[i].str))
+		if (of_property_read_bool(dev->of_node, quirks[i].str))
 			config.quirks |= quirks[i].flag;
 
 	dev->platform_data = &config;
