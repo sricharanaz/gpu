@@ -30,11 +30,11 @@ static inline bool _check_segment(const struct elf32_phdr *phdr)
 		phdr->p_memsz);
 }
 
-static int __pil_tz_load_image(struct platform_device *pdev,
+static int zap_load_segments(struct platform_device *pdev,
 		const struct firmware *mdt, const char *fwname,
 		void *fwptr, size_t fw_size, unsigned long fw_min_addr)
 {
-	char str[64] = { 0 };
+	char filename[64];
 	const struct elf32_hdr *ehdr = (struct elf32_hdr *) mdt->data;
 	const struct elf32_phdr *phdrs = (struct elf32_phdr *) (ehdr + 1);
 	const struct firmware *fw;
@@ -52,16 +52,18 @@ static int __pil_tz_load_image(struct platform_device *pdev,
 		offset = (phdr->p_paddr - fw_min_addr);
 
 		/* Request the file containing the segment */
-		snprintf(str, sizeof(str) - 1, "%s.b%02d", fwname, i);
+		snprintf(filename, sizeof(filename), "%s.b%02d", fwname, i);
 
-		ret = request_firmware(&fw, str, &pdev->dev);
+		ret = request_firmware(&fw, filename, &pdev->dev);
 		if (ret) {
-			dev_err(&pdev->dev, "Failed to load segment %s\n", str);
+			dev_err(&pdev->dev, "Failed to load segment %s\n",
+				filename);
 			break;
 		}
 
 		if (offset + fw->size > fw_size) {
-			dev_err(&pdev->dev, "Segment %s is too big\n", str);
+			dev_err(&pdev->dev, "Segment %s is too big\n",
+				filename);
 			ret = -EINVAL;
 			release_firmware(fw);
 			break;
@@ -69,15 +71,19 @@ static int __pil_tz_load_image(struct platform_device *pdev,
 
 		/* Copy the segment into place */
 		memcpy(fwptr + offset, fw->data, fw->size);
+
+		if (phdr->p_memsz > phdr->p_filesz)
+			memset(fwptr + fw->size, 0,
+				phdr->p_memsz - phdr->p_filesz);
 		release_firmware(fw);
 	}
 
 	return ret;
 }
 
-static int _pil_tz_load_image(struct platform_device *pdev)
+static int zap_load_mdt(struct platform_device *pdev)
 {
-	char str[64] = { 0 };
+	char filename[64];
 	const char *fwname;
 	const struct elf32_hdr *ehdr;
 	const struct elf32_phdr *phdrs;
@@ -85,7 +91,6 @@ static int _pil_tz_load_image(struct platform_device *pdev)
 	phys_addr_t fw_min_addr, fw_max_addr;
 	dma_addr_t fw_phys;
 	size_t fw_size;
-	u32 pas_id;
 	void *ptr;
 	int i, ret;
 
@@ -94,11 +99,10 @@ static int _pil_tz_load_image(struct platform_device *pdev)
 
 	if (!qcom_scm_is_available()) {
 		dev_err(&pdev->dev, "SCM is not available\n");
-		return -EINVAL;
+		return -EPROBE_DEFER;
 	}
 
 	ret = of_reserved_mem_device_init(&pdev->dev);
-
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to set up the reserved memory\n");
 		return ret;
@@ -111,17 +115,12 @@ static int _pil_tz_load_image(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	if (of_property_read_u32(pdev->dev.of_node, "qcom,pas-id", &pas_id)) {
-		dev_err(&pdev->dev, "Could not read the pas ID\n");
-		return -EINVAL;
-	}
-
-	snprintf(str, sizeof(str) - 1, "%s.mdt", fwname);
+	snprintf(filename, sizeof(filename), "%s.mdt", fwname);
 
 	/* Request the MDT file for the firmware */
-	ret = request_firmware(&mdt, str, &pdev->dev);
+	ret = request_firmware(&mdt, filename, &pdev->dev);
 	if (ret) {
-		dev_err(&pdev->dev, "Unable to load %s\n", str);
+		dev_err(&pdev->dev, "Unable to load %s\n", filename);
 		return ret;
 	}
 
@@ -150,7 +149,7 @@ static int _pil_tz_load_image(struct platform_device *pdev)
 	fw_size = (size_t) (fw_max_addr - fw_min_addr);
 
 	/* Verify the MDT header */
-	ret = qcom_scm_pas_init_image(pas_id, mdt->data, mdt->size);
+	ret = qcom_scm_pas_init_image(13, mdt->data, mdt->size);
 	if (ret) {
 		dev_err(&pdev->dev, "Invalid firmware metadata\n");
 		goto out;
@@ -162,18 +161,19 @@ static int _pil_tz_load_image(struct platform_device *pdev)
 		goto out;
 
 	/* Set up the newly allocated memory region */
-	ret = qcom_scm_pas_mem_setup(pas_id, fw_phys, fw_size);
+	ret = qcom_scm_pas_mem_setup(13, fw_phys, fw_size);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to set up firmware memory\n");
 		goto out;
 	}
 
-	ret = __pil_tz_load_image(pdev, mdt, fwname, ptr, fw_size, fw_min_addr);
-	if (!ret) {
-		ret = qcom_scm_pas_auth_and_reset(pas_id);
-		if (ret)
-			dev_err(&pdev->dev, "Unable to authorize the image\n");
-	}
+	ret = zap_load_segments(pdev, mdt, fwname, ptr, fw_size, fw_min_addr);
+	if (ret)
+		goto out;
+
+	ret = qcom_scm_pas_auth_and_reset(13);
+	if (ret)
+		dev_err(&pdev->dev, "Unable to authorize the image\n");
 
 out:
 	if (ret && ptr)
@@ -501,14 +501,14 @@ static int a5xx_zap_shader_init(struct msm_gpu *gpu)
 	of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
 
 	/* Find the sub-node for the zap shader */
-	node = of_find_node_by_name(pdev->dev.of_node, "qcom,zap-shader");
+	node = of_get_child_by_name(pdev->dev.of_node, "zap-shader");
 	if (!node) {
-		DRM_ERROR("%s: qcom,zap-shader not found in device tree\n",
+		DRM_ERROR("%s: zap-shader not found in device tree\n",
 			gpu->name);
 		return -ENODEV;
 	}
 
-	ret = _pil_tz_load_image(of_find_device_by_node(node));
+	ret = zap_load_mdt(of_find_device_by_node(node));
 	if (ret)
 		DRM_ERROR("%s: Unable to load the zap shader\n",
 			gpu->name);
