@@ -485,14 +485,14 @@
 			};
 		};
 
-		adreno_smmu: arm,smmu@b40000 {
+		adreno_smmu: iommu@b40000 {
 			compatible = "arm,smmu-v2";
 			reg = <0xb40000 0x10000>;
 
 			#global-interrupts = <1>;
-			interrupts = <0 334 0>,
-				     <0 329 0>,
-				     <0 330 0>;
+			interrupts = <GIC_SPI 334 IRQ_TYPE_NONE>,
+				     <GIC_SPI 329 IRQ_TYPE_NONE>,
+				     <GIC_SPI 330 IRQ_TYPE_NONE>;
 			#iommu-cells = <1>;
 
 			clocks = <&mmcc MMSS_MMAGIC_AHB_CLK>,
@@ -501,30 +501,41 @@
 				<&gcc GCC_MMSS_BIMC_GFX_CLK>,
 				<&gcc GCC_BIMC_GFX_CLK>,
 				<&mmcc MMSS_MISC_AHB_CLK>;
-			clock-names = "mmagic_ahb_clk",
-				"mmagic_cfg_ahb_clk",
-				"gpu_ahb_clk",
-				"gcc_mmss_bimc_gfx_clk",
-				"gcc_bimc_gfx_clk",
-				"mmss_misc_bus_clk";
+			clock-names = "mmagic_ahb",
+				"mmagic_cfg_ahb",
+				"gpu_ahb",
+				"gcc_mmss_bimc_gfx",
+				"gcc_bimc_gfx",
+				"mmss_misc_bus";
 
 			power-domains = <&mmcc GPU_GDSC>;
 
 			qcom,skip-init;
 			qcom,register-save;
 			qcom,dynamic;
-
-			status = "okay";
 		};
 
-		adreno-3xx@b00000 {
+		adreno_opp_table: adreno_opp_table {
+			compatible = "operating-points-v2";
+
+			opp00 {
+				opp-hz = /bits/ 64 <0>;
+			};
+
+			opp01 {
+				opp-hz = /bits/ 64 <205000000>;
+			};
+
+		};
+
+		gpu@b00000 {
 			compatible = "qcom,adreno-3xx";
 			#stream-id-cells = <16>;
 
 			reg = <0xb00000 0x3f000>;
 			reg-names = "kgsl_3d0_reg_memory";
 
-			interrupts = <0 300 0>;
+			interrupts = <GIC_SPI 300 IRQ_TYPE_NONE>;
 			interrupt-names = "kgsl_3d0_irq";
 
 			clocks = <&mmcc GPU_GX_GFX3D_CLK>,
@@ -534,41 +545,28 @@
 				<&gcc GCC_MMSS_BIMC_GFX_CLK>,
 				<&mmcc MMSS_MMAGIC_AHB_CLK>;
 
-			clock-names = "core_clk",
-				"iface_clk",
-				"rbbmtimer_clk",
-				"mem_clk",
-				"mem_iface_clk",
-				"alt_mem_iface_clk";
+			clock-names = "core",
+				"iface",
+				"rbbmtimer",
+				"mem",
+				"mem_iface",
+				"alt_mem_iface";
 
 			power-domains = <&mmcc GPU_GDSC>;
 			iommus = <&adreno_smmu 0>;
 
-			/* There are patchlevel 3 chips in the world (Snapdragon
-			 * (820) but they are functionally similar to the 821 in
-			 * the code so we can safely set the chipset as
-			 * patchlevel 4. */
-			qcom,chipid = <0x05030004>;
+			qcom,chipid = <0x05030003>;
 
-			/* This is a safe speed for bring up in all bin levels.
-			 * This isn't the fastest the chip can go, but we can
-			 * get there eventually */
-			qcom,gpu-pwrlevels {
-				compatible = "qcom,gpu-pwrlevels";
-				qcom,gpu-pwrlevel@0 {
-					qcom,gpu-freq = <205000000>;
-				};
-				qcom,gpu-pwrlevel@1 {
-					qcom,gpu-freq = <27000000>;
-				};
-			};
+			/* Enable the two-pass-use-wfi for 530.3 targets */
+			qcom,gpu-quirk-two-pass-use-wfi;
 
-			qcom,zap-shader {
+			operating-points-v2 = <&adreno_opp_table>;
+
+			zap-shader {
 				compatible = "qcom,zap-shader";
 				memory-region = <&peripheral_reserved>;
 
 				qcom,firmware = "a530_zap";
-				qcom,pas-id = <13>;
 			};
 		};
 

@@ -719,6 +719,7 @@ static int a5xx_zap_shader_init(struct msm_gpu *gpu)
 	  A5XX_RBBM_INT_0_MASK_RBBM_ETS_MS_TIMEOUT | \
 	  A5XX_RBBM_INT_0_MASK_RBBM_ATB_ASYNC_OVERFLOW | \
 	  A5XX_RBBM_INT_0_MASK_CP_HW_ERROR | \
+	  A5XX_RBBM_INT_0_MASK_MISC_HANG_DETECT | \
 	  A5XX_RBBM_INT_0_MASK_CP_SW | \
 	  A5XX_RBBM_INT_0_MASK_CP_CACHE_FLUSH_TS | \
 	  A5XX_RBBM_INT_0_MASK_UCHE_OOB_ACCESS | \
@@ -1133,6 +1134,25 @@ static void a5xx_gpmu_err_irq(struct msm_gpu *gpu)
 	dev_err_ratelimited(gpu->dev->dev, "GPMU | voltage droop\n");
 }
 
+static void a5xx_fault_detect_irq(struct msm_gpu *gpu)
+{
+	struct msm_ringbuffer *ring = gpu->funcs->active_ring(gpu);
+	uint32_t fence = gpu->funcs->last_fence(gpu, ring);
+
+	dev_err(dev->dev, "%s: hang detected gpu lockup rb %d\n", gpu->name,
+			ring->id);
+	dev_err(dev->dev, "%s:     completed fence: %u\n",
+			gpu->name, fence);
+	dev_err(dev->dev, "%s:     submitted fence: %u\n",
+			gpu->name, ring->last_fence);
+
+	/* Stop the hangcheck timer so it doesn't get in our way */
+	del_timer(&gpu->hangcheck_timer);
+
+	/* Start the recovery process */
+	queue_work(priv->wq, &gpu->recover_work);
+}
+
 #define RBBM_ERROR_MASK \
 	(A5XX_RBBM_INT_0_MASK_RBBM_AHB_ERROR | \
 	A5XX_RBBM_INT_0_MASK_RBBM_TRANSFER_TIMEOUT | \
@@ -1152,6 +1172,9 @@ static irqreturn_t a5xx_irq(struct msm_gpu *gpu)
 
 	if (status & A5XX_RBBM_INT_0_MASK_CP_HW_ERROR)
 		a5xx_cp_err_irq(gpu);
+
+	if (status & A5XX_RBBM_INT_0_MASK_MISC_HANG_DETECT)
+		a5xx_fault_detect_irq(gpu);
 
 	if (status & A5XX_RBBM_INT_0_MASK_UCHE_OOB_ACCESS)
 		a5xx_uche_err_irq(gpu);
