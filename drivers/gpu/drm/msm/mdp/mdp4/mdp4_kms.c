@@ -167,7 +167,7 @@ static void mdp4_destroy(struct msm_kms *kms)
 
 	if (aspace) {
 		aspace->mmu->funcs->detach(aspace->mmu);
-		msm_gem_address_space_destroy(aspace);
+		msm_gem_address_space_put(aspace);
 	}
 
 	drm_gem_object_unreference_unlocked(mdp4_kms->blank_cursor_bo);

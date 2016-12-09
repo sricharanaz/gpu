@@ -743,8 +743,7 @@ void msm_gpu_cleanup(struct msm_gpu *gpu)
 		msm_ringbuffer_destroy(gpu->rb[i]);
 	}
 
-	if (gpu->aspace)
-		msm_gem_address_space_destroy(gpu->aspace);
+	msm_gem_address_space_put(gpu->aspace);
 
 	if (gpu->fctx)
 		msm_fence_context_free(gpu->fctx);

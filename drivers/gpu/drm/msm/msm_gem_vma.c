@@ -19,6 +19,24 @@
 #include "msm_gem.h"
 #include "msm_mmu.h"
 
+static void
+msm_gem_address_space_destroy(struct kref *kref)
+{
+	struct msm_gem_address_space *aspace = container_of(kref,
+			struct msm_gem_address_space, kref);
+
+	drm_mm_takedown(&aspace->mm);
+	if (aspace->mmu)
+		aspace->mmu->funcs->destroy(aspace->mmu);
+	kfree(aspace);
+}
+
+
+void msm_gem_address_space_put(struct msm_gem_address_space *aspace) {
+	if (aspace)
+		kref_put(&aspace->kref, msm_gem_address_space_destroy);
+}
+
 void
 msm_gem_unmap_vma(struct msm_gem_address_space *aspace,
 		struct msm_gem_vma *vma, struct sg_table *sgt)
@@ -34,6 +52,8 @@ msm_gem_unmap_vma(struct msm_gem_address_space *aspace,
 	drm_mm_remove_node(&vma->node);
 
 	vma->iova = 0;
+
+	msm_gem_address_space_put(aspace);
 }
 
 int
@@ -58,16 +78,10 @@ msm_gem_map_vma(struct msm_gem_address_space *aspace,
 				size, IOMMU_READ | IOMMU_WRITE);
 	}
 
-	return ret;
-}
+	/* Get a reference to the aspace to keep it around */
+	kref_get(&aspace->kref);
 
-void
-msm_gem_address_space_destroy(struct msm_gem_address_space *aspace)
-{
-	drm_mm_takedown(&aspace->mm);
-	if (aspace->mmu)
-		aspace->mmu->funcs->destroy(aspace->mmu);
-	kfree(aspace);
+	return ret;
 }
 
 static struct msm_gem_address_space *
@@ -82,6 +96,8 @@ msm_gem_address_space_new(struct msm_mmu *mmu, const char *name,
 
 	aspace->name = name;
 	aspace->mmu = mmu;
+
+	kref_init(&aspace->kref);
 
 	drm_mm_init(&aspace->mm, (start >> PAGE_SHIFT),
 		(end >> PAGE_SHIFT) - 1);
@@ -114,3 +130,5 @@ msm_gem_address_space_create_instance(struct msm_mmu *parent, const char *name,
 
 	return msm_gem_address_space_new(child, name, start, end);
 }
+
+
