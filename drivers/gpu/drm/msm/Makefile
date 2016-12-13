@@ -9,6 +9,7 @@ msm-y := \
 	adreno/a5xx_gpu.o \
 	adreno/a5xx_power.o \
 	adreno/a5xx_preempt.o \
+	adreno/a5xx_snapshot.o \
 	hdmi/hdmi.o \
 	hdmi/hdmi_audio.o \
 	hdmi/hdmi_bridge.o \
@@ -53,6 +54,7 @@ msm-y := \
 	msm_gem_submit.o \
 	msm_gem_vma.o \
 	msm_gpu.o \
+	msm_snapshot.o \
 	msm_iommu.o \
 	msm_perf.o \
 	msm_rd.o \

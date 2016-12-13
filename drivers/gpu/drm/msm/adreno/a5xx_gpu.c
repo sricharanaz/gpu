@@ -21,9 +21,6 @@
 #include "msm_iommu.h"
 #include "a5xx_gpu.h"
 
-extern bool hang_debug;
-static void a5xx_dump(struct msm_gpu *gpu);
-
 static inline bool _check_segment(const struct elf32_phdr *phdr)
 {
 	return ((phdr->p_type == PT_LOAD) &&
@@ -802,6 +799,7 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A5XX_CP_PROTECT(4), ADRENO_PROTECT_RW(0x40, 64));
 	gpu_write(gpu, REG_A5XX_CP_PROTECT(5), ADRENO_PROTECT_RW(0x80, 64));
 
+#if 0
 	/* Content protect */
 	gpu_write(gpu, REG_A5XX_CP_PROTECT(6),
 		ADRENO_PROTECT_RW(REG_A5XX_RBBM_SECVID_TSB_TRUSTED_BASE_LO,
@@ -829,6 +827,7 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	if (adreno_is_a530(adreno_gpu))
 		gpu_write(gpu, REG_A5XX_CP_PROTECT(17),
 			ADRENO_PROTECT_RW(0x10000, 0x8000));
+#endif
 
 	gpu_write(gpu, REG_A5XX_RBBM_SECVID_TSB_CNTL, 0);
 	/*
@@ -925,8 +924,7 @@ static void a5xx_recover(struct msm_gpu *gpu)
 {
 	adreno_dump_info(gpu);
 
-	if (hang_debug)
-		a5xx_dump(gpu);
+	msm_gpu_snapshot(gpu, gpu->snapshot);
 
 	gpu_write(gpu, REG_A5XX_RBBM_SW_RESET_CMD, 1);
 	gpu_read(gpu, REG_A5XX_RBBM_SW_RESET_CMD);
@@ -1116,6 +1114,8 @@ static void a5xx_fault_detect_irq(struct msm_gpu *gpu)
 {
 	struct msm_ringbuffer *ring = gpu->funcs->active_ring(gpu);
 	uint32_t fence = gpu->funcs->last_fence(gpu, ring);
+	struct drm_device *dev = gpu->dev;
+	struct msm_drm_private *priv = dev->dev_private;
 
 	dev_err(dev->dev, "%s: hang detected gpu lockup rb %d\n", gpu->name,
 			ring->id);
@@ -1225,13 +1225,6 @@ static const u32 a5xx_registers[] = {
 	~0
 };
 
-static void a5xx_dump(struct msm_gpu *gpu)
-{
-	dev_info(gpu->dev->dev, "status:   %08x\n",
-		gpu_read(gpu, REG_A5XX_RBBM_STATUS));
-	adreno_dump(gpu);
-}
-
 static int a5xx_pm_resume(struct msm_gpu *gpu)
 {
 	int ret;
@@ -1328,6 +1321,7 @@ static const struct adreno_gpu_funcs funcs = {
 		.irq = a5xx_irq,
 		.destroy = a5xx_destroy,
 		.show = a5xx_show,
+		.snapshot = a5xx_snapshot,
 	},
 	.get_timestamp = a5xx_get_timestamp,
 };

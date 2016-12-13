@@ -17,7 +17,9 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <linux/utsname.h>
 #include "adreno_gpu.h"
+#include "msm_snapshot.h"
 #include "msm_gem.h"
 #include "msm_mmu.h"
 
@@ -507,4 +509,77 @@ void adreno_gpu_cleanup(struct adreno_gpu *gpu)
 	release_firmware(gpu->pfp);
 
 	msm_gpu_cleanup(&gpu->base);
+}
+
+static void adreno_snapshot_os(struct msm_gpu *gpu,
+		struct msm_snapshot *snapshot)
+{
+	struct msm_snapshot_linux header = { 0 };
+
+	header.osid = SNAPSHOT_OS_LINUX_V3;
+	strncpy(header.release, utsname()->release, sizeof(header.release));
+	strncpy(header.version, utsname()->version, sizeof(header.version));
+
+	header.seconds = get_seconds();
+	header.ctxtcount = 0;
+
+	SNAPSHOT_HEADER(snapshot, header, SNAPSHOT_SECTION_OS, 0);
+}
+
+static void adreno_snapshot_ringbuffer(struct msm_gpu *gpu,
+		struct msm_snapshot *snapshot, struct msm_ringbuffer *ring)
+{
+	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
+	struct msm_snapshot_ringbuffer header = { 0 };
+	unsigned int i, end = 0;
+	unsigned int *data = ring->start;
+
+	/*
+	 * We only want to copy the active contents of each ring, so find the
+	 * last valid entry in the ringbuffer
+	 */
+	for (i = 0; i < SZ_32K >> 2; i++) {
+		if (data[i])
+			end = i;
+	}
+
+	/* The dump always starts at 0 */
+	header.start = 0;
+	header.end = end;
+
+	/* This is the number of dwords being dumped */
+	header.count = end;
+
+	/* This is the size of the actual ringbuffer */
+	header.rbsize = SZ_32K >> 2;
+
+	header.id = ring->id;
+	header.gpuaddr = ring->iova;
+	header.rptr = get_rptr(adreno_gpu, ring);
+	header.wptr = get_wptr(ring);
+	header.timestamp_queued = adreno_last_fence(gpu, ring);
+	header.timestamp_retired = ring->completed_fence;
+
+	/* Write the header even if the ringbuffer data is empty */
+	if (!SNAPSHOT_HEADER(snapshot, header, SNAPSHOT_SECTION_RB_V2, end))
+		return;
+
+	SNAPSHOT_MEMCPY(snapshot, ring->start, end * sizeof(u32));
+}
+
+static void adreno_snapshot_ringbuffers(struct msm_gpu *gpu,
+		struct msm_snapshot *snapshot)
+{
+	struct msm_ringbuffer *ring;
+	int i;
+
+	/* Write a new section for each ringbuffer */
+	FOR_EACH_RING(gpu, ring, i)
+		adreno_snapshot_ringbuffer(gpu, snapshot, ring);
+}
+
+void adreno_snapshot(struct msm_gpu *gpu, struct msm_snapshot *snapshot)
+{
+	adreno_snapshot_os(gpu, snapshot);
+	adreno_snapshot_ringbuffers(gpu, snapshot);
 }

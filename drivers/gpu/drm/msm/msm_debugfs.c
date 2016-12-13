@@ -18,6 +18,7 @@
 #ifdef CONFIG_DEBUG_FS
 #include "msm_drv.h"
 #include "msm_gpu.h"
+#include "msm_snapshot.h"
 
 static int msm_gpu_show(struct drm_device *dev, struct seq_file *m)
 {
@@ -30,6 +31,13 @@ static int msm_gpu_show(struct drm_device *dev, struct seq_file *m)
 	}
 
 	return 0;
+}
+
+static int msm_snapshot_show(struct drm_device *dev, struct seq_file *m)
+{
+	struct msm_drm_private *priv = dev->dev_private;
+
+	return msm_snapshot_write(priv->gpu, m);
 }
 
 static int msm_gem_show(struct drm_device *dev, struct seq_file *m)
@@ -96,11 +104,23 @@ static int show_locked(struct seq_file *m, void *arg)
 	return ret;
 }
 
+static int show_unlocked(struct seq_file *m, void *arg)
+{
+	struct drm_info_node *node = (struct drm_info_node *) m->private;
+	struct drm_device *dev = node->minor->dev;
+	int (*show)(struct drm_device *dev, struct seq_file *m) =
+			node->info_ent->data;
+
+	return show(dev, m);
+}
+
+
 static struct drm_info_list msm_debugfs_list[] = {
 		{"gpu", show_locked, 0, msm_gpu_show},
 		{"gem", show_locked, 0, msm_gem_show},
 		{ "mm", show_locked, 0, msm_mm_show },
 		{ "fb", show_locked, 0, msm_fb_show },
+		{ "snapshot", show_unlocked, 0, msm_snapshot_show },
 };
 
 static int late_init_minor(struct drm_minor *minor)

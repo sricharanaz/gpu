@@ -127,6 +127,7 @@ void msm_update_fence(struct msm_fence_context *fctx,
 {
 	spin_lock(&fctx->spinlock);
 	ring->completed_fence = max(fence, ring->completed_fence);
+
 	spin_unlock(&fctx->spinlock);
 
 	wake_up_all(&fctx->event);
