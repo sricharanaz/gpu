@@ -471,38 +471,16 @@ static const struct a5xx_hwcg a530_hwcg[] = {
 	{REG_A5XX_RBBM_CLOCK_DELAY_VFD, 0x00002222}
 };
 
-static const struct {
-	int (*test)(struct adreno_gpu *gpu);
-	const struct a5xx_hwcg *regs;
-	unsigned int count;
-} a5xx_hwcg_regs[] = {
-	{ adreno_is_a530, a530_hwcg, ARRAY_SIZE(a530_hwcg), },
-};
-
-static void _a5xx_enable_hwcg(struct msm_gpu *gpu,
-		const struct a5xx_hwcg *regs, unsigned int count)
+void a5xx_set_hwcg(struct msm_gpu *gpu, bool state)
 {
 	unsigned int i;
 
-	for (i = 0; i < count; i++)
-		gpu_write(gpu, regs[i].offset, regs[i].value);
+	for (i = 0; i < ARRAY_SIZE(a530_hwcg); i++)
+		gpu_write(gpu, a530_hwcg[i].offset,
+			state ? a530_hwcg[i].value: 0);
 
-	gpu_write(gpu, REG_A5XX_RBBM_CLOCK_CNTL, 0xAAA8AA00);
-	gpu_write(gpu, REG_A5XX_RBBM_ISDB_CNT, 0x182);
-}
-
-static void a5xx_enable_hwcg(struct msm_gpu *gpu)
-{
-	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(a5xx_hwcg_regs); i++) {
-		if (a5xx_hwcg_regs[i].test(adreno_gpu)) {
-			_a5xx_enable_hwcg(gpu, a5xx_hwcg_regs[i].regs,
-				a5xx_hwcg_regs[i].count);
-			return;
-		}
-	}
+	gpu_write(gpu, REG_A5XX_RBBM_CLOCK_CNTL, state ? 0xAAA8AA00 : 0);
+	gpu_write(gpu, REG_A5XX_RBBM_ISDB_CNT, state ? 0x182 : 0x180);
 }
 
 static int a5xx_me_init(struct msm_gpu *gpu)
@@ -805,7 +783,7 @@ static int a5xx_hw_init(struct msm_gpu *gpu)
 	gpu_write(gpu, REG_A5XX_RBBM_AHB_CNTL1, 0xA6FFFFFF);
 
 	/* Enable HWCG */
-	a5xx_enable_hwcg(gpu);
+	a5xx_set_hwcg(gpu, true);
 
 	gpu_write(gpu, REG_A5XX_RBBM_AHB_CNTL2, 0x0000003F);
 
